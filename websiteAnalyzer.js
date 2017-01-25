@@ -1,3 +1,4 @@
+
 /**
  * Created by bosko on 10/01/17.
  */
@@ -18,9 +19,9 @@ const connectDb = () => {
       reconnectTries: 30,
       socketOptions: {
         autoReconnect: true,
-        keepAlive: 0,
-        connectTimeoutMS: 0,
-        socketTimeoutMS: 0
+        keepAlive: 30000,
+        connectTimeoutMS: 300000,
+        socketTimeoutMS: 300000
       }
     }
   })
@@ -68,7 +69,7 @@ const tryParseJSON = (jsonString) => {
 const analyzeWebsite = (url) => {
   return new Promise((resolve, reject) => {
     wapp.run([url, '-v', '--resource-timeout=60000'], (wappOut, wappErr) => {
-      sleep.msleep(100);
+      
       if (wappErr) {
         console.error('Error analyzing URL: ' + url + ' ' + wappErr);
         Website.findOneAndUpdate({url: url}, {
@@ -123,14 +124,16 @@ const analyzeWebsite = (url) => {
 };
 
 connectDb().then(() => {
+    console.log('Connected to Database');
   var cursor = Website.find({checked: false}).lean().cursor();
 
   cursor.on('data', (doc) => {
-    sleep.msleep(100);
-    analyzeWebsite(doc.url).then(() => {
-      console.log('Analyzed ' + doc.url);
+     analyzeWebsite(doc.url).then(() => {
+	console.log('Analyzed ' + doc.url);
+	 sleep.msleep(50);
     }).catch((err) => {
-      console.error('Failed to analyze ' + doc.url);
+	console.error('Failed to analyze ' + doc.url);
+	 sleep.msleep(50);
     })
   });
 })
