@@ -113,7 +113,7 @@ const analyzeWebsite = (url, callback) => {
           if (err) {
             callback(err);
           } else {
-            callback(null, url);
+            callback(null, JSON.stringify(parsedwappOut));
           }
         })
       } else {
