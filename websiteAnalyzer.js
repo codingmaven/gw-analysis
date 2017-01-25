@@ -1,4 +1,3 @@
-
 /**
  * Created by bosko on 10/01/17.
  */
@@ -9,6 +8,7 @@ const wapp = require('wappalyzer');
 const Website = require('./models/website');
 const mongoose = require('mongoose')
 const sleep = require('sleep');
+const async = require('async');
 mongoose.Promise = global.Promise;
 
 const connectDb = () => {
@@ -66,75 +66,84 @@ const tryParseJSON = (jsonString) => {
   return false;
 };
 
-const analyzeWebsite = (url) => {
-  return new Promise((resolve, reject) => {
-    wapp.run([url, '-v', '--resource-timeout=60000'], (wappOut, wappErr) => {
-      
-      if (wappErr) {
-        console.error('Error analyzing URL: ' + url + ' ' + wappErr);
+const analyzeWebsite = (url, callback) => {
+  wapp.run([url, '-v', '--resource-timeout=60000'], (wappOut, wappErr) => {
+    if (wappErr) {
+      console.error('Error analyzing URL: ' + url + ' ' + wappErr);
+      Website.findOneAndUpdate({url: url}, {
+        $set: {
+          originalUrl: url,
+          redirectUrl: '',
+          wappErrors: wappErr,
+          checked: true,
+          software: [],
+          lastChecked: new Date().valueOf()
+        }
+      }, {upsert: true}, (err, res) => {
+        if (err) {
+          callback(err);
+        } else {
+          callback(null, url);
+        }
+      });
+    } else {
+      if (tryParseJSON(wappOut)) {
+        let str = wappOut.replace(/\\n/g, "\\n")
+          .replace(/\\'/g, "\\'")
+          .replace(/\\"/g, "\\'")
+          .replace(/\\&/g, "\\&")
+          .replace(/\\r/g, "\\r")
+          .replace(/\\t/g, "\\t")
+          .replace(/\\b/g, "\\b")
+          .replace(/\\f/g, "\\f");
+
+        str = str.replace(/[\u0000-\u0019]+/g, "");
+        let parsedwappOut = JSON.parse(wappOut);
+        console.log('analyzed ' + parsedwappOut.url)
+
         Website.findOneAndUpdate({url: url}, {
           $set: {
-            originalUrl: url,
-            redirectUrl: '',
-            wappErrors: wappErr,
-            checked: true,
-            software: [],
-            lastChecked: new Date().valueOf()
+            originalUrl: parsedwappOut.originalUrl,
+            software: parsedwappOut.applications,
+            redirectUrl: (_.isEqual(parsedwappOut.url, url) ? '' : parsedwappOut.url),
+            lastChecked: new Date().valueOf(),
+            checked: true
           }
-        }, {upsert: true}).exec().then(() => {
-          reject(wappErr.stack);
-        }).catch((mongoErr) => {
-          reject(mongoErr.stack);
-        });
+        }, {upsert: true}, (err, res) => {
+          if (err) {
+            callback(err);
+          } else {
+            callback(null, url);
+          }
+        })
       } else {
-        if (tryParseJSON(wappOut)) {
-          let str = wappOut.replace(/\\n/g, "\\n")
-            .replace(/\\'/g, "\\'")
-            .replace(/\\"/g, "\\'")
-            .replace(/\\&/g, "\\&")
-            .replace(/\\r/g, "\\r")
-            .replace(/\\t/g, "\\t")
-            .replace(/\\b/g, "\\b")
-            .replace(/\\f/g, "\\f");
-
-          str = str.replace(/[\u0000-\u0019]+/g, "");
-          let parsedwappOut = JSON.parse(wappOut);
-          console.log('analyzed ' + parsedwappOut.url)
-
-          Website.findOneAndUpdate({url: url}, {
-            $set: {
-              originalUrl: parsedwappOut.originalUrl,
-              software: parsedwappOut.applications,
-              redirectUrl: (_.isEqual(parsedwappOut.url, url) ? '' : parsedwappOut.url),
-              lastChecked: new Date().valueOf(),
-              checked: true
-            }
-          }, {upsert: true}).exec().then(() => {
-            resolve();
-          }).catch((mongoErr) => {
-            console.err(mongoErr.stack)
-            reject(mongoErr);
-          })
-        } else {
-          resolve();
-        }
+        callback(null, url);
       }
-    });
-  })
+    }
+  });
 };
 
 connectDb().then(() => {
-    console.log('Connected to Database');
+  console.log('Connected to Database');
   var cursor = Website.find({checked: false}).lean().cursor();
+  var q = async.queue((task, callback) => {
+    analyzeWebsite(task, (err, res) => {
+      callback(err, res);
+    })
+  }, 10);
+
+  q.drain = () => {
+    console.log('Queue drained');
+  };
 
   cursor.on('data', (doc) => {
-     analyzeWebsite(doc.url).then(() => {
-	console.log('Analyzed ' + doc.url);
-	 sleep.msleep(50);
-    }).catch((err) => {
-	console.error('Failed to analyze ' + doc.url);
-	 sleep.msleep(50);
-    })
+    q.push(doc.url, (err, res) => {
+      if (err) {
+        console.error(err);
+      } else {
+        console.log('Analyzed ' + res);
+      }
+    });
   });
-})
+});
 
