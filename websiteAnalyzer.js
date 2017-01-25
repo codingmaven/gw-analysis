@@ -9,6 +9,7 @@ const Website = require('./models/website');
 const mongoose = require('mongoose')
 const sleep = require('sleep');
 const async = require('async');
+const _ = require('lodash');
 mongoose.Promise = global.Promise;
 
 const connectDb = () => {
@@ -26,8 +27,6 @@ const connectDb = () => {
     }
   })
 };
-
-const _ = require('lodash');
 
 const occurrences = (string, subString, allowOverlapping) => {
   string += "";
@@ -67,6 +66,7 @@ const tryParseJSON = (jsonString) => {
 };
 
 const analyzeWebsite = (url, callback) => {
+  callback = _.once(callback);
   wapp.run([url, '-v', '--resource-timeout=60000'], (wappOut, wappErr) => {
     if (wappErr) {
       console.error('Error analyzing URL: ' + url + ' ' + wappErr);
